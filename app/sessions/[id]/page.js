@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs } from '../../../lib/api';
+import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs, splitPrompt, cleanTitle } from '../../../lib/api';
 import { Shell } from '../../ui';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export default async function SessionPage({ params }) {
       <div className="head">
         <div style={{ minWidth: 0 }}>
           <div className="sub"><Link href="/sessions">← السيشنز</Link></div>
-          <h1 dir="auto" style={{ wordBreak: 'break-word' }}>{s.title || 'سيشن من غير عنوان'}</h1>
+          <h1 dir="auto" style={{ wordBreak: 'break-word' }}>{cleanTitle(s.title) || 'سيشن من غير عنوان'}</h1>
         </div>
       </div>
 
@@ -66,12 +66,21 @@ export default async function SessionPage({ params }) {
       <section className="card">
         <h2>البرومبتس ({prompts.length})</h2>
         {prompts.length === 0 && <div className="empty">مفيش برومبتس متسجلة</div>}
-        {prompts.map((pr, i) => (
-          <div className="prompt" key={i}>
-            <div className="when ltr">#{i + 1} · {fmtDate(pr.ts)}</div>
-            <pre dir="auto">{pr.prompt}</pre>
-          </div>
-        ))}
+        {prompts.map((pr, i) => {
+          const { text, ctx } = splitPrompt(pr.prompt);
+          return (
+            <div className="prompt" key={i}>
+              <div className="when ltr">#{i + 1} · {fmtDate(pr.ts)}</div>
+              {ctx.map((c, j) => (
+                <details className="ctx" key={j}>
+                  <summary className="ltr">📎 {c.label}</summary>
+                  <pre dir="auto">{c.body}</pre>
+                </details>
+              ))}
+              {text ? <pre dir="auto">{text}</pre> : <span className="muted">(سياق بس، من غير نص)</span>}
+            </div>
+          );
+        })}
       </section>
     </Shell>
   );

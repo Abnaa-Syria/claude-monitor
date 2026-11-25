@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs } from '../../lib/api';
+import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs, cleanTitle } from '../../lib/api';
 import { Shell, RangePicker } from '../ui';
 
 export const dynamic = 'force-dynamic';
 
-const ENTRY = { cli: 'Terminal', 'claude-vscode': 'VS Code / Cursor', 'sdk-ts': 'SDK', 'sdk-py': 'SDK' };
+const ENTRY = { cli: 'Terminal', 'claude-vscode': 'VS Code / Cursor', 'sdk-ts': 'SDK', 'sdk-py': 'SDK', 'non-interactive': 'VS Code / SDK' };
 
 export default async function Sessions({ searchParams }) {
   const params = await searchParams;
@@ -46,7 +46,7 @@ export default async function Sessions({ searchParams }) {
               {sessions.map(s => (
                 <tr key={s.session_id}>
                   <td className="title">
-                    <Link href={`/sessions/${s.session_id}`} dir="auto">{s.title || <span className="muted">(من غير عنوان)</span>}</Link>
+                    <Link href={`/sessions/${s.session_id}`} dir="auto">{cleanTitle(s.title) || <span className="muted">(من غير عنوان)</span>}</Link>
                   </td>
                   <td><Link className="ltr" href={`/sessions${qs({ ...p, user: s.user })}`}>{s.user}</Link></td>
                   <td>{s.project_name ? <Link className="pill accent ltr" href={`/sessions${qs({ ...p, project: s.project_name })}`}>{s.project_name}</Link> : <span className="muted">—</span>}</td>

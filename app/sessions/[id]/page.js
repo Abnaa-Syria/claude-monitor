@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs, splitPrompt, cleanTitle } from '../../../lib/api';
-import { Shell } from '../../ui';
+import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, fmtTime, scopeOf, splitPrompt, cleanTitle, initials, ENTRY } from '../../../lib/api';
+import { Shell, PageHead, Card, Who, ProjectTag, OrgTag, ModelsList } from '../../ui';
+import { ConfirmSubmit } from '../../client';
+import { deleteSession } from '../../actions';
+import { IconTrash, IconBranch } from '../../icons';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,79 +12,84 @@ export default async function SessionPage({ params }) {
   const { id } = await params;
   const data = await api(`/api/sessions/${encodeURIComponent(id)}`);
   if (!data) notFound();
-  const { session: s, prompts, models, tools } = data;
+  const { session: s, prompts, models, tools, timeline } = data;
+  const scope = scopeOf({});
+  const title = cleanTitle(s.title) || 'جلسة بدون عنوان';
+  const maxReq = Math.max(...timeline.map(r => n(r.cost_usd)), 0.0001);
 
   return (
-    <Shell>
-      <div className="head">
-        <div style={{ minWidth: 0 }}>
-          <div className="sub"><Link href="/sessions">← السيشنز</Link></div>
-          <h1 dir="auto" style={{ wordBreak: 'break-word' }}>{cleanTitle(s.title) || 'سيشن من غير عنوان'}</h1>
+    <Shell active="sessions" scope={scope} path="/sessions" showScope={false}>
+      <PageHead crumbs={<><Link href="/sessions">الجلسات</Link><span>/</span></>} title={title}
+        sub={`${ENTRY[s.entrypoint] || s.entrypoint || 'Claude Code'} · ${fmtDate(s.started_at)} ← ${fmtDate(s.last_activity)}`}
+        actions={
+          <form action={deleteSession}>
+            <input type="hidden" name="id" value={s.session_id} />
+            <ConfirmSubmit message="حذف هذه الجلسة وكل رسائلها نهائياً؟ استخدمه إذا كانت فيها بيانات حساسة."><IconTrash />حذف الجلسة</ConfirmSubmit>
+          </form>
+        } />
+
+      <div className="split">
+        <Card title={`رسائل المطوّر (${fmtNum(prompts.length)})`} hint="ما كتبه المطوّر لـ Claude بالترتيب">
+          {prompts.length === 0 ? <div className="empty">لا توجد رسائل مسجّلة لهذه الجلسة</div> : (
+            <div className="thread">
+              {prompts.map((pr, i) => {
+                const { text, ctx } = splitPrompt(pr.prompt);
+                return (
+                  <div className="msg" key={i}>
+                    <span className="avatar">{initials(s.user_name)}</span>
+                    <div className="bubble">
+                      <div className="meta"><b className="num">#{i + 1}</b><span className="num">{fmtDate(pr.ts)}</span></div>
+                      {ctx.map((c, j) => (
+                        <details className="ctx" key={j}>
+                          <summary><span>📎</span><span className="ltr">{c.label}</span><span className="faint">· سياق من المحرر</span></summary>
+                          <pre dir="auto">{c.body}</pre>
+                        </details>
+                      ))}
+                      {text ? <pre dir="auto">{text}</pre> : <span className="faint">(سياق فقط بدون نص)</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        <div className="aside">
+          <Card title="التفاصيل">
+            <div className="facts">
+              <div className="fact"><span className="k">المطوّر</span><span className="v"><Who user={s.user} name={s.user_name} scope={scope} /></span></div>
+              <div className="fact"><span className="k">المنظمة</span><span className="v"><OrgTag id={s.org_id} name={s.org_name} /></span></div>
+              <div className="fact"><span className="k">المشروع</span><span className="v"><ProjectTag name={s.project_name} scope={scope} /></span></div>
+              {s.git_branch && <div className="fact"><span className="k">الفرع</span><span className="v ltr"><IconBranch style={{ width: 14, verticalAlign: -2 }} /> {s.git_branch}</span></div>}
+              <div className="fact"><span className="k">المسار</span><span className="v ltr faint" style={{ fontSize: 12 }}>{s.project_dir || '—'}</span></div>
+              <div className="fact"><span className="k">الجهاز</span><span className="v ltr">{[s.os_user, s.host].filter(Boolean).join(' @ ') || '—'}</span></div>
+              <div className="fact"><span className="k">التكلفة</span><span className="v"><b className="num" style={{ fontSize: 18 }}>{fmtCost(s.cost_usd)}</b></span></div>
+              <div className="fact"><span className="k">Tokens</span><span className="v"><span className="num">{fmtTok(s.input_tokens)}</span> إدخال · <span className="num">{fmtTok(s.output_tokens)}</span> إخراج</span></div>
+              <div className="fact"><span className="k">Cache</span><span className="v num">{fmtTok(n(s.cache_read_tokens) + n(s.cache_creation_tokens))}</span></div>
+              <div className="fact"><span className="k">معرّف الجلسة</span><span className="v ltr faint" style={{ fontSize: 11.5 }}>{s.session_id}</span></div>
+            </div>
+          </Card>
+
+          <Card title="الموديلات"><ModelsList rows={models} /></Card>
+
+          {timeline.length > 0 && (
+            <Card title="الطلبات عبر الوقت" hint={`${fmtNum(timeline.length)} طلب · ارتفاع العمود = التكلفة`}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 70, direction: 'ltr' }}>
+                {timeline.map((r, i) => (
+                  <span key={i} title={`${fmtTime(r.ts)} · ${r.model} · ${fmtCost(r.cost_usd)} · ${fmtTok(n(r.input_tokens) + n(r.output_tokens))} tokens`}
+                    style={{ flex: 1, minWidth: 2, maxWidth: 14, height: `${Math.max(4, (n(r.cost_usd) / maxReq) * 100)}%`, background: 'var(--accent)', borderRadius: '3px 3px 0 0' }} />
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {tools.length > 0 && (
+            <Card title="الأدوات التي استخدمها Claude">
+              <div className="toolbar">{tools.map(t => <span key={t.tool || 'x'} className="pill ltr">{t.tool || '?'} · {t.n}</span>)}</div>
+            </Card>
+          )}
         </div>
       </div>
-
-      <section className="card meta">
-        <div><div className="k">الديفلوبر</div><Link className="ltr" href={`/sessions${qs({ user: s.user })}`}>{s.user}</Link></div>
-        <div><div className="k">المشروع</div><span className="ltr">{s.project_name || '—'}{s.git_branch ? ` · ${s.git_branch}` : ''}</span></div>
-        <div><div className="k">المسار</div><span className="ltr muted" style={{ wordBreak: 'break-all' }}>{s.project_dir || '—'}</span></div>
-        <div><div className="k">البداية / آخر نشاط</div><span className="ltr">{fmtDate(s.started_at)} → {fmtDate(s.last_activity)}</span></div>
-        <div><div className="k">التكلفة</div><b className="ltr">{fmtCost(s.cost_usd)}</b></div>
-        <div><div className="k">Tokens (in / out / cache)</div><span className="ltr">{fmtTok(s.input_tokens)} / {fmtTok(s.output_tokens)} / {fmtTok(n(s.cache_read_tokens) + n(s.cache_creation_tokens))}</span></div>
-        <div><div className="k">الجهاز</div><span className="ltr">{[s.os_user, s.host].filter(Boolean).join(' @ ') || '—'}</span></div>
-        <div><div className="k">Session ID</div><span className="ltr muted">{s.session_id}</span></div>
-      </section>
-
-      {models.length > 0 && (
-        <section className="card">
-          <h2>الموديلات</h2>
-          <div className="scroll">
-            <table>
-              <thead><tr><th>Model</th><th className="num">Requests</th><th className="num">Input</th><th className="num">Output</th><th className="num">Cache</th><th className="num">التكلفة</th></tr></thead>
-              <tbody>
-                {models.map(m => (
-                  <tr key={m.model || 'x'}>
-                    <td className="ltr">{m.model || '—'}</td>
-                    <td className="num">{fmtNum(m.requests)}</td>
-                    <td className="num">{fmtTok(m.input_tokens)}</td>
-                    <td className="num">{fmtTok(m.output_tokens)}</td>
-                    <td className="num">{fmtTok(n(m.cache_read_tokens) + n(m.cache_creation_tokens))}</td>
-                    <td className="num">{fmtCost(m.cost_usd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {tools.length > 0 && (
-        <section className="card">
-          <h2>الأدوات اللي Claude استخدمها</h2>
-          <div className="filters" style={{ margin: 0 }}>
-            {tools.map(t => <span key={t.tool || 'x'} className="pill ltr">{t.tool || '?'} × {t.n}</span>)}
-          </div>
-        </section>
-      )}
-
-      <section className="card">
-        <h2>البرومبتس ({prompts.length})</h2>
-        {prompts.length === 0 && <div className="empty">مفيش برومبتس متسجلة</div>}
-        {prompts.map((pr, i) => {
-          const { text, ctx } = splitPrompt(pr.prompt);
-          return (
-            <div className="prompt" key={i}>
-              <div className="when ltr">#{i + 1} · {fmtDate(pr.ts)}</div>
-              {ctx.map((c, j) => (
-                <details className="ctx" key={j}>
-                  <summary className="ltr">📎 {c.label}</summary>
-                  <pre dir="auto">{c.body}</pre>
-                </details>
-              ))}
-              {text ? <pre dir="auto">{text}</pre> : <span className="muted">(سياق بس، من غير نص)</span>}
-            </div>
-          );
-        })}
-      </section>
     </Shell>
   );
 }

@@ -6,4 +6,4 @@ export function proxy(req) {
   return NextResponse.redirect(new URL('/login', req.url));
 }
 
-export const config = { matcher: ['/((?!login|_next|favicon.ico).*)'] };
+export const config = { matcher: ['/((?!login|_next|favicon.ico|qt.png).*)'] };

@@ -1,89 +1,74 @@
 import Link from 'next/link';
-import { api, n, fmtNum, fmtTok, fmtCost, fmtDate, qs } from '../lib/api';
-import { Shell, RangePicker } from './ui';
+import { api, n, fmtNum, fmtTok, fmtCost, qs, href, scopeOf, orgSlot } from '../lib/api';
+import { Shell, PageHead, Card, Kpi, Daily, DevelopersTable, ProjectsTable, SessionsTable, ModelsList, Empty } from './ui';
+import { IconDollar, IconBolt, IconChat, IconUsers, IconFolder, IconInbox } from './icons';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Overview({ searchParams }) {
-  const params = await searchParams;
-  const days = params.days || '30';
-  const { users, projects } = await api(`/api/overview${qs({ days })}`);
+const RANGE_TEXT = { '1': 'اليوم', '7': 'آخر 7 أيام', '30': 'آخر 30 يوم', '90': 'آخر 90 يوم', '3650': 'منذ البداية' };
 
-  const sum = k => users.reduce((a, u) => a + n(u[k]), 0);
-  const totalTokens = sum('input_tokens') + sum('output_tokens');
+export default async function Overview({ searchParams }) {
+  const scope = scopeOf(await searchParams);
+  const q = qs({ days: scope.days, org: scope.org });
+  const [ov, meta, recent] = await Promise.all([api(`/api/overview${q}`), api('/api/meta'), api(`/api/sessions${q}`)]);
+  const t = ov.totals;
+  const orgs = meta.orgs;
+  const orgName = scope.org ? orgs.find(o => String(o.id) === scope.org)?.name : null;
+  const orgTotal = ov.orgs.reduce((a, o) => a + n(o.cost_usd), 0) || 1;
+  const more = (path, label = 'عرض الكل') => <Link className="btn sm" href={href(path, scope)}>{label}</Link>;
 
   return (
-    <Shell>
-      <div className="head">
-        <div>
-          <h1>نظرة عامة</h1>
-          <div className="sub">استخدام Claude Code لكل ديفلوبر ولكل مشروع</div>
-        </div>
-        <RangePicker base="/" params={{ days }} />
+    <Shell active="overview" scope={scope} path="/">
+      <PageHead title={orgName || 'نظرة عامة'} sub={`استخدام Claude Code · ${RANGE_TEXT[scope.days] || ''}${orgName ? '' : ' · كل المنظمات'}`} />
+
+      <div className="kpis">
+        <Kpi hero icon={IconDollar} label="إجمالي التكلفة" value={fmtCost(t.cost_usd)} note={`${fmtNum(t.requests)} طلب للموديل`} />
+        <Kpi icon={IconBolt} label="Tokens (إدخال + إخراج)" value={fmtTok(n(t.input_tokens) + n(t.output_tokens))} note={`Cache: ${fmtTok(n(t.cache_read_tokens) + n(t.cache_creation_tokens))}`} />
+        <Kpi icon={IconUsers} label="مطوّرون نشطون" value={fmtNum(t.users)} />
+        <Kpi icon={IconChat} label="الجلسات" value={fmtNum(t.sessions)} note={<><span className="num">{fmtNum(t.prompts)}</span> رسالة</>} />
+        <Kpi icon={IconFolder} label="المشاريع" value={fmtNum(t.projects)} />
       </div>
 
-      <div className="stats">
-        <div className="stat"><div className="k">التكلفة</div><div className="v ltr">{fmtCost(sum('cost_usd'))}</div></div>
-        <div className="stat"><div className="k">Tokens (input + output)</div><div className="v ltr">{fmtTok(totalTokens)}</div></div>
-        <div className="stat"><div className="k">Cache tokens</div><div className="v ltr">{fmtTok(sum('cache_read_tokens') + sum('cache_creation_tokens'))}</div></div>
-        <div className="stat"><div className="k">السيشنز</div><div className="v">{fmtNum(sum('sessions'))}</div></div>
-        <div className="stat"><div className="k">البرومبتس</div><div className="v">{fmtNum(sum('prompts'))}</div></div>
-        <div className="stat"><div className="k">ديفلوبرز نشطين</div><div className="v">{users.length}</div></div>
+      {!scope.org && (
+        <div className="orgs">
+          {orgs.map(o => {
+            const s = ov.orgs.find(x => String(x.k) === String(o.id));
+            const cost = n(s?.cost_usd);
+            return (
+              <Link key={o.id} href={href('/', { ...scope, org: String(o.id) })} className={`card org-card org-${orgSlot(o.id)}`}>
+                <div className="top"><span className="name"><i className="dot" />{o.name}</span><span className="faint num">{Math.round((cost / orgTotal) * 100)}%</span></div>
+                <div className="cost num">{fmtCost(cost)}</div>
+                <div className="share"><i style={{ width: `${(cost / orgTotal) * 100}%` }} /></div>
+                <div className="stats">
+                  <span>{fmtNum(s?.users)} مطوّر</span><span>{fmtNum(s?.sessions)} جلسة</span><span>{fmtNum(s?.projects)} مشروع</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="grid g-2">
+        <Card title="الاستهلاك اليومي" hint="حسب توقيت القاهرة">
+          <Daily daily={ov.daily} scope={scope} orgs={orgs} />
+        </Card>
+        <Card title="الموديلات" hint="التكلفة حسب الموديل">
+          <ModelsList rows={ov.models} />
+        </Card>
       </div>
 
-      <section className="card">
-        <h2>الديفلوبرز</h2>
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>الديفلوبر</th><th className="num">سيشنز</th><th className="num">مشاريع</th><th className="num">برومبتس</th>
-                <th className="num">Input</th><th className="num">Output</th><th className="num">Cache</th><th className="num">التكلفة</th><th>آخر نشاط</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.length === 0 && <tr><td colSpan={9} className="empty">مفيش نشاط في الفترة دي</td></tr>}
-              {users.map(u => (
-                <tr key={u.user}>
-                  <td><Link className="ltr" href={`/sessions${qs({ user: u.user, days })}`}>{u.user}</Link></td>
-                  <td className="num">{fmtNum(u.sessions)}</td>
-                  <td className="num">{fmtNum(u.projects)}</td>
-                  <td className="num">{fmtNum(u.prompts)}</td>
-                  <td className="num">{fmtTok(u.input_tokens)}</td>
-                  <td className="num">{fmtTok(u.output_tokens)}</td>
-                  <td className="num">{fmtTok(n(u.cache_read_tokens) + n(u.cache_creation_tokens))}</td>
-                  <td className="num"><b>{fmtCost(u.cost_usd)}</b></td>
-                  <td className="muted ltr">{fmtDate(u.last_activity)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <Card title="أكثر المطوّرين استهلاكاً" actions={more('/developers')} pad={false}>
+        <DevelopersTable rows={ov.users.slice(0, 8)} scope={scope} />
+      </Card>
 
-      <section className="card">
-        <h2>المشاريع</h2>
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr><th>المشروع</th><th>الديفلوبرز</th><th className="num">سيشنز</th><th className="num">Tokens</th><th className="num">التكلفة</th><th>آخر نشاط</th></tr>
-            </thead>
-            <tbody>
-              {projects.length === 0 && <tr><td colSpan={6} className="empty">مفيش مشاريع في الفترة دي</td></tr>}
-              {projects.map(p => (
-                <tr key={p.project}>
-                  <td><Link className="ltr" href={`/sessions${qs({ project: p.project, days })}`}><b>{p.project}</b></Link></td>
-                  <td className="title muted ltr">{p.user_list}</td>
-                  <td className="num">{fmtNum(p.sessions)}</td>
-                  <td className="num">{fmtTok(p.tokens)}</td>
-                  <td className="num">{fmtCost(p.cost_usd)}</td>
-                  <td className="muted ltr">{fmtDate(p.last_activity)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div className="grid g-2e">
+        <Card title="أحدث الجلسات" actions={more('/sessions')} pad={false}>
+          <SessionsTable rows={recent.sessions.slice(0, 6)} scope={scope} compact />
+        </Card>
+        <Card title="المشاريع النشطة" actions={more('/projects')} pad={false}>
+          <ProjectsTable rows={ov.projects.slice(0, 6)} scope={scope} compact />
+        </Card>
+      </div>
     </Shell>
   );
 }

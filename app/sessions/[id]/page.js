@@ -22,7 +22,7 @@ export default async function SessionPage({ params }) {
 
       <section className="card meta">
         <div><div className="k">الديفلوبر</div><Link className="ltr" href={`/sessions${qs({ user: s.user })}`}>{s.user}</Link></div>
-        <div><div className="k">المشروع</div><span className="ltr">{s.project_name || '—'}</span></div>
+        <div><div className="k">المشروع</div><span className="ltr">{s.project_name || '—'}{s.git_branch ? ` · ${s.git_branch}` : ''}</span></div>
         <div><div className="k">المسار</div><span className="ltr muted" style={{ wordBreak: 'break-all' }}>{s.project_dir || '—'}</span></div>
         <div><div className="k">البداية / آخر نشاط</div><span className="ltr">{fmtDate(s.started_at)} → {fmtDate(s.last_activity)}</span></div>
         <div><div className="k">التكلفة</div><b className="ltr">{fmtCost(s.cost_usd)}</b></div>

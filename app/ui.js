@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { logout } from './actions';
 import { ThemeToggle, DailyChart } from './client';
 import { IconHome, IconUsers, IconFolder, IconChat, IconGear, IconLogout, IconInbox } from './icons';
-import { api, n, fmtNum, fmtTok, fmtCost, fmtAgo, fmtDate, fmtDayLabel, href, qs, initials, orgSlot, cleanTitle, ENTRY } from '../lib/api';
+import { api, n, fmtNum, fmtTok, fmtCost, fmtAgo, fmtDate, fmtDayLabel, href, qs, initials, orgSlot, cleanTitle, isDevice, ENTRY } from '../lib/api';
 
 const NAV = [
   ['overview', '/', 'نظرة عامة', IconHome],
@@ -110,20 +110,32 @@ export const OrgTag = ({ id, name }) => name ? <span className="pill"><i classNa
 
 export function Who({ user, name, email, scope, sub }) {
   const label = name || user;
+  const device = isDevice(user) && (!name || name === user);
   return (
     <Link className="who" href={href('/developer', scope, { user })}>
-      <span className="avatar">{initials(label)}</span>
+      <span className={`avatar${device ? ' unknown' : ''}`}>{device ? '?' : initials(label)}</span>
       <span style={{ minWidth: 0 }}>
         <div className="who-name ltr" dir="auto">{label}</div>
-        {(sub || (name && name !== user && (email || user))) && <div className="who-sub ltr">{sub || email || user}</div>}
+        {device ? <div className="who-sub">حساب غير معروف بعد · جهاز</div>
+          : (sub || (name && name !== user && (email || user))) && <div className="who-sub ltr">{sub || email || user}</div>}
       </span>
     </Link>
   );
 }
 
+// "a, b, c, d, e" → "a، b، c +2"
+export function NameList({ list, max = 3 }) {
+  const names = String(list || '').split(', ').filter(Boolean);
+  if (!names.length) return <span className="faint">—</span>;
+  return <span dir="auto">{names.slice(0, max).join('، ')}{names.length > max && <span className="pill" style={{ marginInlineStart: 6 }}>+{names.length - max}</span>}</span>;
+}
+
 export const ProjectTag = ({ name, scope }) => name && name !== '(unknown)'
   ? <Link className="pill proj ltr" href={href('/project', scope, { name })}>{name}</Link>
   : <span className="faint">—</span>;
+
+const sessionTitle = s => cleanTitle(s.title)
+  || <span className="faint">{s.project_name ? `جلسة على ${s.project_name}` : 'جلسة بدون رسائل مكتوبة'}</span>;
 
 // ---------- Shared tables ----------
 export function DevelopersTable({ rows, scope, max }) {
@@ -145,7 +157,7 @@ export function DevelopersTable({ rows, scope, max }) {
               <td className="n num">{fmtNum(u.projects)}</td>
               <td className="n num">{fmtNum(u.prompts)}</td>
               <td className="n num">{fmtTok(n(u.input_tokens) + n(u.output_tokens))}</td>
-              <td className="n"><div className="bar-cell"><b className="num">{fmtCost(u.cost_usd)}</b><span className="minibar"><i style={{ width: `${(n(u.cost_usd) / top) * 100}%` }} /></span></div></td>
+              <td className="n"><div className="bar-cell"><Cost row={u} /><span className="minibar"><i style={{ width: `${(n(u.cost_usd) / top) * 100}%` }} /></span></div></td>
               <td className="faint">{fmtAgo(u.last_activity)}</td>
             </tr>
           ))}
@@ -167,7 +179,7 @@ export function ProjectsTable({ rows, scope, compact }) {
             <tr key={p.k}>
               <td><ProjectTag name={p.k} scope={scope} /></td>
               <td className="n num">{fmtNum(p.users)}</td>
-              <td className="n num"><b>{fmtCost(p.cost_usd)}</b></td>
+              <td className="n num"><Cost row={p} /></td>
               <td className="faint">{fmtAgo(p.last_activity)}</td>
             </tr>
           ))}
@@ -185,11 +197,11 @@ export function ProjectsTable({ rows, scope, compact }) {
           {rows.map(p => (
             <tr key={p.k}>
               <td><ProjectTag name={p.k} scope={scope} /></td>
-              <td className="wrap muted ltr" style={{ minWidth: 180 }}>{p.user_list}</td>
+              <td className="wrap muted" style={{ minWidth: 180 }}><NameList list={p.user_list} /></td>
               <td className="muted">{p.orgs || '—'}</td>
               <td className="n num">{fmtNum(p.sessions)}</td>
               <td className="n num">{fmtTok(n(p.input_tokens) + n(p.output_tokens))}</td>
-              <td className="n"><div className="bar-cell"><b className="num">{fmtCost(p.cost_usd)}</b><span className="minibar"><i style={{ width: `${(n(p.cost_usd) / top) * 100}%` }} /></span></div></td>
+              <td className="n"><div className="bar-cell"><Cost row={p} /><span className="minibar"><i style={{ width: `${(n(p.cost_usd) / top) * 100}%` }} /></span></div></td>
               <td className="faint">{fmtAgo(p.last_activity)}</td>
             </tr>
           ))}
@@ -210,11 +222,11 @@ export function SessionsTable({ rows, scope, hideUser, hideProject, compact }) {
             <tr key={s.session_id}>
               <td className="wrap" style={{ minWidth: 200 }}>
                 <Link href={`/sessions/${s.session_id}`} className="title-cell">
-                  <span className="row-link clamp" dir="auto">{cleanTitle(s.title) || <span className="faint">(بدون عنوان)</span>}</span>
+                  <span className="row-link clamp" dir="auto">{sessionTitle(s)}</span>
                   <small><span className="ltr">{s.user_name}</span>{s.project_name ? <> · <span className="ltr">{s.project_name}</span></> : null}</small>
                 </Link>
               </td>
-              <td className="n num"><b>{fmtCost(s.cost_usd)}</b></td>
+              <td className="n num"><Cost row={s} /></td>
               <td className="faint">{fmtAgo(s.last_activity)}</td>
             </tr>
           ))}
@@ -234,7 +246,7 @@ export function SessionsTable({ rows, scope, hideUser, hideProject, compact }) {
             <tr key={s.session_id}>
               <td className="wrap">
                 <Link href={`/sessions/${s.session_id}`} className="title-cell">
-                  <span className="row-link clamp" dir="auto">{cleanTitle(s.title) || <span className="faint">(بدون عنوان)</span>}</span>
+                  <span className="row-link clamp" dir="auto">{sessionTitle(s)}</span>
                   <small>{ENTRY[s.entrypoint] || s.entrypoint || '—'} · بدأت {fmtDate(s.started_at)}</small>
                 </Link>
               </td>
@@ -243,7 +255,7 @@ export function SessionsTable({ rows, scope, hideUser, hideProject, compact }) {
               <td><OrgTag id={s.org_id} name={s.org_name} /></td>
               <td className="n num">{fmtNum(s.prompts)}</td>
               <td className="n num">{fmtTok(n(s.input_tokens) + n(s.output_tokens))}</td>
-              <td className="n num"><b>{fmtCost(s.cost_usd)}</b></td>
+              <td className="n num"><Cost row={s} /></td>
               <td className="faint">{fmtAgo(s.last_activity)}</td>
             </tr>
           ))}
@@ -299,4 +311,11 @@ export function Daily({ daily, scope, orgs, height }) {
     : [{ key: 'all', label: 'الكل', slot: scope.org ? orgSlot(scope.org) : 1 }];
   if (!daily.length) return <Empty>لا يوجد استهلاك في هذه الفترة</Empty>;
   return <DailyChart days={days} series={series} height={height} />;
+}
+
+// Cost of a row. No model requests at all means the cost data never reached us (telemetry not active
+// on that machine yet), which is different from a real $0.
+export function Cost({ row }) {
+  if (!n(row.requests)) return <span className="faint" title="لم تصل بيانات التكلفة من هذا الجهاز بعد">—</span>;
+  return <b className="num">{fmtCost(row.cost_usd)}</b>;
 }
